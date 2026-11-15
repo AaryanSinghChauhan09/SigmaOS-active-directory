@@ -1,6 +1,6 @@
-use sigmaos_active_directory::Component;
+use sigmaos_active_directory::AdDomain;
 
 #[test]
 fn component_constructs() {
-    let _c = Component::new();
+    let _c = AdDomain::new("example.com");
 }

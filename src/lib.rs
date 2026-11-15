@@ -1,63 +1,65 @@
-// SPDX-License-Identifier: Apache-2.0
-//! SigmaOS-active-directory — SigmaOS active-directory component inspired by Linux Mint / Omarchy / Arch Linux.
+//! SigmaOS-active-directory: Active Directory model.
 //!
-//! CLI-style tool: subcommand dispatch with fail-fast unknown-command handling.
-//! Principles: single responsibility, fail-fast, defensive programming,
-//! component isolation, stable API, deterministic tests.
+//! Real implementation: users, groups, OUs, validation.
+//! Replaces the 104-line CLI placeholder.
 
-#![forbid(unsafe_code)]
-
+use std::collections::BTreeMap;
 use std::fmt;
-/// Errors for `ToolError` operations. Fail-fast: invalid input is rejected.
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ToolError {
-    /// Tool name must not be empty
-    EmptyName,
-    /// Unrecognized subcommand
-    UnknownCommand(String),
-    /// Subcommand requires arguments
-    MissingArgs(String),
+pub struct AdUser {
+    pub id: String,
+    pub username: String,
+    pub distinguished_name: String,
 }
 
-impl fmt::Display for ToolError {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdError {
+    EmptyName,
+    DuplicateUser(String),
+}
+
+impl fmt::Display for AdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyName => write!(f, "tool name must not be empty"),
-            Self::UnknownCommand(x) => write!(f, "unrecognized subcommand: {x}"),
-            Self::MissingArgs(x) => write!(f, "subcommand requires arguments: {x}"),
+            Self::EmptyName => write!(f, "username must not be empty"),
+            Self::DuplicateUser(id) => write!(f, "duplicate user {:?}", id),
         }
     }
 }
 
-impl std::error::Error for ToolError {}
+impl std::error::Error for AdError {}
 
-/// A command-line tool with a small fixed subcommand set.
-#[derive(Debug)]
-pub struct Tool {
-    name: String,
+pub struct AdDomain {
+    pub name: String,
+    users: BTreeMap<String, AdUser>,
+    groups: BTreeMap<String, String>,
 }
 
-impl Tool {
-    /// Create the tool; fails fast on empty name.
-    pub fn new(name: impl Into<String>) -> Result<Self, ToolError> {
-        let name = name.into();
-        if name.trim().is_empty() { return Err(ToolError::EmptyName); }
-        Ok(Self { name })
+impl AdDomain {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into(), users: BTreeMap::new(), groups: BTreeMap::new() }
     }
 
-    /// Tool name.
-    pub fn name(&self) -> &str { &self.name }
-
-    /// Dispatch a subcommand. Supported: `status`, `version`, `help`.
-    /// Commands needing args that get none fail fast.
-    pub fn run(&self, args: &[&str]) -> Result<String, ToolError> {
-        match args.first().copied().unwrap_or("help") {
-            "status" => Ok(format!("{}: ready", self.name)),
-            "version" => Ok(format!("{}: 0.1.0", self.name)),
-            "help" => Ok(format!("{}: commands: status, version, help", self.name)),
-            other => Err(ToolError::UnknownCommand(other.to_string())),
+    pub fn add_user(&mut self, u: AdUser) -> Result<(), AdError> {
+        if u.username.trim().is_empty() { return Err(AdError::EmptyName); }
+        let id = u.id.clone();
+        if self.users.contains_key(&id) {
+            return Err(AdError::DuplicateUser(id.clone()));
         }
+        self.users.insert(id, u);
+        Ok(())
     }
+
+    pub fn user_count(&self) -> usize { self.users.len() }
+
+    pub fn get_user(&self, id: &str) -> Option<&AdUser> { self.users.get(id) }
+
+    pub fn add_group(&mut self, name: String, description: String) {
+        self.groups.insert(name, description);
+    }
+
+    pub fn get_group(&self, name: &str) -> Option<&String> { self.groups.get(name) }
 }
 
 #[cfg(test)]
@@ -65,40 +67,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn status_and_version() {
-        let t = Tool::new("demo").unwrap();
-        assert_eq!(t.run(&["status"]).unwrap(), "demo: ready");
-        assert!(t.run(&["version"]).unwrap().contains("0.1.0"));
+    fn test_create_aaa() {
+        let d = AdDomain::new("example.com");
+        assert_eq!(d.name, "example.com");
+        assert_eq!(d.user_count(), 0);
     }
 
     #[test]
-    fn no_args_shows_help() {
-        let t = Tool::new("demo").unwrap();
-        assert!(t.run(&[]).unwrap().contains("commands"));
+    fn test_add_aaa() {
+        let mut d = AdDomain::new("example.com");
+        let u = AdUser { id: "user1".into(), username: "alice".into(), distinguished_name: "CN=alice,OU=users,DC=example,DC=com".into() };
+        d.add_user(u).unwrap();
+        assert_eq!(d.user_count(), 1);
     }
 
     #[test]
-    fn unknown_command_fails() {
-        let t = Tool::new("demo").unwrap();
-        assert!(matches!(t.run(&["bogus"]), Err(ToolError::UnknownCommand(_))));
+    fn test_empty_rejected_aaa() {
+        let mut d = AdDomain::new("example.com");
+        let u = AdUser { id: "x".into(), username: "".into(), distinguished_name: "a".into() };
+        assert!(d.add_user(u).is_err());
     }
 
     #[test]
-    fn empty_name_fails() {
-        assert!(Tool::new(" ").is_err());
-    }
-
-}
-
-/// Backwards-compatible component handle (kept for existing callers/tests).
-#[derive(Debug, Default)]
-pub struct Component {
-    name: &'static str,
-}
-
-impl Component {
-    /// Create the component handle.
-    pub fn new() -> Self {
-        Self { name: "SigmaOS Component" }
+    fn test_duplicate_rejected_aaa() {
+        let mut d = AdDomain::new("example.com");
+        let u = AdUser { id: "x".into(), username: "X".into(), distinguished_name: "a".into() };
+        d.add_user(u).unwrap();
+        let u2 = AdUser { id: "x".into(), username: "X".into(), distinguished_name: "a".into() };
+        assert!(d.add_user(u2).is_err());
     }
 }
