@@ -1,10 +1,15 @@
 [package]
-name = "sigmaos_active_directory"
+name = "SigmaOS-active-directory"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
-description = "SigmaOS active-directory component inspired by Linux Mint / Omarchy / Arch Linux."
+license = "Apache-2.0"
+description = "SigmaOS sigmaos_active_directory component"
 
 [lib]
 name = "sigmaos_active_directory"
 path = "src/lib.rs"
+
+[dependencies]
+thiserror = "1"
+
+[dev-dependencies]
